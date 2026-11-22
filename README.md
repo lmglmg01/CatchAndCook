@@ -20,7 +20,7 @@ https://github.com/user-attachments/assets/e01d7e89-9c93-46f6-91e6-f97b23a0b7b2
 | 4 | [상점 거래와 공용 인벤토리](#24-상점-거래와-공용-인벤토리) | 구매·판매 검증, 거래 실패 시 골드·수량 복구 |
 | 5 | [레벨별 퀘스트와 진행 이벤트](#25-레벨별-퀘스트와-진행-이벤트) | 레벨 1~10 데이터, 선행 조건과 목표 이벤트 연동 |
 | 6 | [IInteractable 기반 상호작용](#26-iinteractable-기반-상호작용) | 공통 인터페이스, 거리 기반 대상 선택, NPC 메뉴와 수중 오브젝트 연동 |
-| 7 | [전기 뱀장어 보스전](#27-전기-뱀장어-보스전) | 돌진 물기·흡입·꼬리 휩쓸기와 전투 씬 구성 |
+| 7 | [전기 뱀장어 보스전](#27-전기-뱀장어-보스전) | 보스 모델·리깅·애니메이션 제작, 돌진 물기·흡입·꼬리 휩쓸기 구현 |
 | 8 | [JSON 5슬롯 저장·불러오기](#28-json-5슬롯-저장불러오기) | 시작 메뉴 연동, 파일 백업과 이전 저장 호환 |
 | 9 | [정상·강제 귀환 정산](#29-정상강제-귀환-정산) | 귀환 유형별 획득 규칙 및 인벤토리·퀘스트 반영 |
 | 10 | [Unity 에디터 아이콘 제작 도구 개선](#210-unity-에디터-아이콘-제작-도구-개선) | 캡처 조명·광택·실루엣 옵션과 투명 PNG 경계 처리 |
@@ -287,6 +287,15 @@ public class RecoveryHpInteractObject : DiveSupplyInteractObject
 
 ### 2.7 전기 뱀장어 보스전
 
+#### 보스 모델과 애니메이션 제작
+
+1. **콘셉트와 모델링** — ChatGPT로 전기 뱀장어의 콘셉트 이미지를 생성하고, 이 이미지를 Meshy AI에 입력해 3D 모델을 만들었습니다.
+2. **메시 최적화** — Meshy AI의 리메시 기능으로 정점 수를 줄였습니다. Blender로 불러온 리메시 결과는 정점 **5,117개**였습니다.
+3. **리깅과 애니메이션** — Codex에 Blender 리깅을 맡겨 몸통에서 꼬리까지 이어지는 뼈대와 입을 독립적으로 여닫는 턱 본을 구성했습니다. 루트를 포함한 본 17개로 수영, 물기, 좌우 꼬리 휩쓸기, 사망 등 **13개 애니메이션 클립**을 제작했습니다.
+4. **Unity 적용** — 모델과 클립을 FBX로 내보낸 뒤 Unity의 Generic Rig와 Animator에 연결했습니다. 수영은 반복 재생하고, 물기와 사망 클립은 각각 공격과 처치 연출에 사용했습니다.
+
+#### 보스 전투 패턴
+
 | 구분 | 내용 |
 | --- | --- |
 | 문제 | 공격 패턴마다 움직임과 피격 가능 구간이 다르지만 전투 진행과 보스 체력은 공유합니다. |
@@ -437,11 +446,22 @@ else if (pixel.a > 0 && pixel.a < 255)
 
 **수정 요청** — 물고기의 움직임은 부드럽게 유지하되, 이동 방향을 다시 판단하는 주기와 실제 이동을 갱신하는 주기를 분리해 달라고 요청했습니다. 재생성은 물고기가 풀로 반환될 때 해당 자리만 예약하도록 제안했습니다.
 
-**반영 결과** — `FishPatternScheduler`는 무리별 판단 시각이 됐거나 장애물 회피처럼 즉시 판단할 요청이 있을 때만 `Tick()`을 호출합니다. 파동·점프 경로는 기존 물리 주기로 갱신하고, `FishRespawnScheduler`는 예약 시간이 된 자리만 재생성합니다. 원본 커밋 `52be4ab1` · 2026-11-20.
+**반영 결과** — `FishPatternScheduler`는 무리별 판단 시각이 됐거나 장애물 회피처럼 즉시 판단할 요청이 있을 때만 `Tick()`을 호출합니다. 파동·점프 경로는 기존 물리 주기로 갱신하고, `FishRespawnScheduler`는 예약 시간이 된 자리만 재생성합니다.
 
-**예시 코드 · FishPatternScheduler.Advance에서 판단 주기와 이동 갱신 분리**
+**수정 전 · 매 물리 틱에 모든 대상 패턴의 판단 실행**
 
 ~~~csharp
+// FishSpawner.FixedUpdate
+foreach (FishSpawnPattern pattern in _fixedPatterns)
+{
+    pattern.Tick(Time.fixedDeltaTime);
+}
+~~~
+
+**수정 후 · 판단 시각과 즉시 요청을 확인하고 연속 이동은 별도로 갱신**
+
+~~~csharp
+// FishPatternScheduler.Advance
 if (_clock >= entry.NextDecision || pattern.DecisionRequested)
 {
     // 조기 갱신에서도 마지막 판단 이후 실제 경과 시간만 전달합니다.
@@ -469,30 +489,47 @@ if (pattern.RequiresPhysicsPath)
 
 **수정 요청** — 손님이 주문하거나 직원이 서빙을 마친 시점에 모델이 이벤트를 보내 해당 UI만 갱신하도록 요청했습니다. 이미 화면에 있는 대상은 프레젠터가 처음 켜지거나 다시 활성화될 때 한 번 연결하도록 했습니다.
 
-**반영 결과** — 캐릭터 UI는 활성화·비활성화 이벤트로 등록하고 해제해 0.25초 주기의 전체 검색을 없앴습니다. 주문 시작(`OrderStarted`)과 서빙 완료(`FoodServed`)는 해당 표시를 갱신하고, 조리 목록은 변경되거나 슬롯을 다시 맞춰야 할 때 뷰에 전달합니다. 영업 상태와 의자 청소 등 조회가 남은 항목은 후속 이벤트 연결 대상으로 기록했습니다. 원본 커밋 `7caf726b`(이벤트 연결), `f8ac8729`(남은 조회 항목 정리) · 2026-11-13.
+**반영 결과** — 캐릭터 UI는 활성화·비활성화 이벤트로 등록하고 해제해 0.25초 주기의 전체 검색을 없앴습니다. 주문 시작(`OrderStarted`)과 서빙 완료(`FoodServed`)는 해당 표시를 갱신하고, 조리 목록은 변경되거나 슬롯을 다시 맞춰야 할 때 뷰에 전달합니다. 영업 상태와 의자 청소 등 조회가 남은 항목은 후속 이벤트 연결 대상으로 기록했습니다.
 
-**예시 코드 · IjakayaPresenter.RegisterWorldCanvas에서 주문과 서빙 이벤트 구독**
+**수정 전 · 0.25초마다 UI 대상을 다시 찾고 매 프레임 조리 목록 전달**
 
 ~~~csharp
-case GuestNPC guest:
-    var guestView = EnsureWorldView(guest, _view.GuestOrderPrefab);
-    if (guestView == null) return;
-    bool newGuest = !_guestDisplays.TryGetValue(guest, out var previousGuest) || previousGuest != guestView;
-    _guestDisplays[guest] = guestView;
-    if (newGuest) guestView.BindGuest(guest);
-    guest.OrderStarted -= NotifyGuestDisplayChanged;
-    guest.OrderStarted += NotifyGuestDisplayChanged;
-    break;
-case SushiCarrier carrier:
-    var carrierView = EnsureWorldView(carrier, _view.CarrierDisplayPrefab);
-    if (carrierView == null) return;
-    _carrierDisplays[carrier] = carrierView;
-    var hero = carrier.GetComponentInParent<GroundHero>();
-    if (hero != null) _groundHero = hero;
-    carrierView.BindCarrier(carrier);
-    carrier.FoodServed -= HandleFoodServed;
-    carrier.FoodServed += HandleFoodServed;
-    break;
+// IjakayaPresenter.LateUpdate
+if (_initialized && Time.unscaledTime >= _nextWorldRefresh)
+{
+    _nextWorldRefresh = Time.unscaledTime + .25f;
+    ConnectWorldDisplays();
+}
+if (_initialized && _cookingDisplay != null && _shop.Cooker != null)
+    _cookingDisplay.DisplayOrders(_shop.Cooker.CookingOrders, _shop.Cooker.CompletedOrders);
+~~~
+
+**수정 후 · 이벤트로 UI를 연결하고 동기화가 필요한 조리 목록만 전달**
+
+~~~csharp
+// IjakayaPresenter
+void SubscribeWorldCanvases()
+{
+    if (_worldEventsSubscribed) return;
+    SushiWorldCanvasView.Available += RegisterWorldCanvas;
+    SushiWorldCanvasView.Unavailable += UnregisterWorldCanvas;
+    _worldEventsSubscribed = true;
+}
+
+// RegisterWorldCanvas의 손님 등록 분기
+guest.OrderStarted -= NotifyGuestDisplayChanged;
+guest.OrderStarted += NotifyGuestDisplayChanged;
+
+// RegisterWorldCanvas의 운반자 등록 분기
+carrier.FoodServed -= HandleFoodServed;
+carrier.FoodServed += HandleFoodServed;
+
+// RefreshCookingDisplays의 조리 목록 갱신 조건
+if (_cookingOrdersDirty || _cookingDisplay.NeedsOrderSync)
+{
+    _cookingDisplay.DisplayOrders(_cookingSource.CookingOrders, _cookingSource.CompletedOrders);
+    _cookingOrdersDirty = false;
+}
 ~~~
 
 ## 4. 개발 환경
@@ -512,13 +549,14 @@ case SushiCarrier carrier:
 | 다이브 | **3D Characters-Fish** (LayerLab) | 블루탱·가오리·해마의 모델과 수영 애니메이션, 산호 등 수중 배경에 쓰였습니다. |
 | 수중 보급 | **O2Canister**, **BulletBox** | 잠수 중 상호작용하는 산소통과 탄약 상자의 3D 모델입니다. 사용을 마치면 `DiveSupplyDissolve` 셰이더로 사라지는 모습을 표현합니다. |
 | 전투 효과 | **Hits Effects FREE** (Matthew Guz), **Particle Pack** (Unity Technologies) | 다이브 피격에는 `Basic Hit` 효과를, 보스전에는 먼지와 돌 파편 파티클을 사용했습니다. |
-| 전기 뱀장어 보스 | **EelBoss_Animations** | 물기(`Bite`), 수영(`Swim`), 사망(`Death`) FBX 클립을 보스 애니메이터에 연결했습니다. |
+| 전기 뱀장어 보스 | **자체 제작 모델·애니메이션** | 콘셉트 이미지에서 제작한 보스 모델과 전용 FBX 클립을 사용했습니다. [모델과 애니메이션 제작 과정](#보스-모델과-애니메이션-제작) |
 | 초밥집 | **Izakaya Asset Pack 1.1** | 젓가락, 사케 병과 잔, 계란말이 모델로 식당의 소품과 음식을 구성했습니다. |
 | 인벤토리·상점 | **FishIcons_LowPoly**, **RestaurantIcons_LowPoly** | 어획물과 쌀·소금·간장 같은 식재료를 구분하는 아이콘입니다. |
 | 다이브 HUD | **DOTween** | 원거리 무기 카드가 앞뒤로 바뀌는 전환과 산소 부족 경고의 점멸·페이드에 사용했습니다. |
 
 #### 개발·협업 도구
 
-- **Unity 에셋** — 기존 전기 뱀장어 모델과 FBX 클립을 가져와 Generic Rig와 반복 재생을 설정하고 머티리얼을 연결했습니다. 보트 머티리얼과 외곽선 셰이더를 수정했습니다.
-- **AI 도구** — Codex를 활용해 Unity C# 구현과 오류 분석을 보조했습니다. 보스 에셋 작업에서는 Blender 리깅·애니메이션 수정과 FBX 내보내기·재임포트 검증에 활용했습니다.
+- **ChatGPT · Meshy AI · Blender** — 보스 콘셉트 이미지 생성, 3D 모델링과 리메시, 리깅과 애니메이션 제작에 각각 사용했습니다.
+- **Codex** — Blender의 리깅·애니메이션 작업을 지시하고 FBX를 다시 불러와 결과를 검증했습니다. Unity C# 구현과 오류 분석에도 활용했습니다.
+- **Unity** — 직접 제작한 보스의 머티리얼과 Animator를 설정하고, 보트 머티리얼과 외곽선 셰이더를 수정했습니다.
 - **Git · GitHub · GitHub Desktop** — 기능 브랜치와 Pull Request로 팀 변경 사항을 통합했습니다. 병합 충돌을 해결하고 시작 씬·빌드 진입 경로, TMP 폰트 아틀라스를 복구했습니다.
