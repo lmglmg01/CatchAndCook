@@ -439,6 +439,30 @@ else if (pixel.a > 0 && pixel.a < 255)
 
 **반영 결과** — `FishPatternScheduler`는 무리별 판단 시각이 됐거나 장애물 회피처럼 즉시 판단할 요청이 있을 때만 `Tick()`을 호출합니다. 파동·점프 경로는 기존 물리 주기로 갱신하고, `FishRespawnScheduler`는 예약 시간이 된 자리만 재생성합니다. 원본 커밋 `52be4ab1` · 2026-11-20.
 
+**예시 코드 · FishPatternScheduler.Advance에서 판단 주기와 이동 갱신 분리**
+
+~~~csharp
+if (_clock >= entry.NextDecision || pattern.DecisionRequested)
+{
+    // 조기 갱신에서도 마지막 판단 이후 실제 경과 시간만 전달합니다.
+    float elapsed = (float)(_clock - entry.LastDecision);
+    pattern.ConsumeDecisionRequest();
+    pattern.Tick(elapsed);
+    entry.LastDecision = _clock;
+
+    // 최초 판단 이후 첫 간격을 분산하고 이후에는 설정된 주기를 유지합니다.
+    float interval = pattern.DecisionInterval;
+    entry.NextDecision = _clock + (entry.FirstDecision
+        ? Random.Range(Mathf.Min(deltaTime, interval), interval)
+        : interval);
+    entry.FirstDecision = false;
+}
+
+// 파동과 점프의 진행만 매 물리 단계에 실행하며 판단 Tick은 재호출하지 않습니다.
+if (pattern.RequiresPhysicsPath)
+    pattern.TickPhysicsPath(deltaTime);
+~~~
+
 ### 3.2 초밥집 UI의 반복 상태 조회
 
 **발견** — 초밥집에서 주문과 손님 상태가 그대로인데도 Unity Profiler에 프레젠터의 UI 갱신이 반복해서 나타났습니다. `IjakayaPresenter`는 0.25초마다 손님·의자·운반자를 다시 찾아 UI 연결을 확인했고, 조리 중인 주문과 완료된 주문 목록은 매 프레임 뷰에 전달했습니다.
@@ -447,13 +471,35 @@ else if (pixel.a > 0 && pixel.a < 255)
 
 **반영 결과** — 캐릭터 UI는 활성화·비활성화 이벤트로 등록하고 해제해 0.25초 주기의 전체 검색을 없앴습니다. 주문 시작(`OrderStarted`)과 서빙 완료(`FoodServed`)는 해당 표시를 갱신하고, 조리 목록은 변경되거나 슬롯을 다시 맞춰야 할 때 뷰에 전달합니다. 영업 상태와 의자 청소 등 조회가 남은 항목은 후속 이벤트 연결 대상으로 기록했습니다. 원본 커밋 `7caf726b`(이벤트 연결), `f8ac8729`(남은 조회 항목 정리) · 2026-11-13.
 
+**예시 코드 · IjakayaPresenter.RegisterWorldCanvas에서 주문과 서빙 이벤트 구독**
+
+~~~csharp
+case GuestNPC guest:
+    var guestView = EnsureWorldView(guest, _view.GuestOrderPrefab);
+    if (guestView == null) return;
+    bool newGuest = !_guestDisplays.TryGetValue(guest, out var previousGuest) || previousGuest != guestView;
+    _guestDisplays[guest] = guestView;
+    if (newGuest) guestView.BindGuest(guest);
+    guest.OrderStarted -= NotifyGuestDisplayChanged;
+    guest.OrderStarted += NotifyGuestDisplayChanged;
+    break;
+case SushiCarrier carrier:
+    var carrierView = EnsureWorldView(carrier, _view.CarrierDisplayPrefab);
+    if (carrierView == null) return;
+    _carrierDisplays[carrier] = carrierView;
+    var hero = carrier.GetComponentInParent<GroundHero>();
+    if (hero != null) _groundHero = hero;
+    carrierView.BindCarrier(carrier);
+    carrier.FoodServed -= HandleFoodServed;
+    carrier.FoodServed += HandleFoodServed;
+    break;
+~~~
+
 ## 4. 개발 환경
 
 ### 4.1 Unity · C#
 
 **Unity 6 (6000.0.68f1) 게임플레이 개발** — 컴포넌트별로 플레이어 조작·대상 감지·씬 진행·UI 갱신의 역할을 나눴습니다. `OnEnable`과 `OnDisable`에 이벤트 구독과 해제를 연결하고, 씬 전환 중 공용 진행 상태를 유지하도록 구성했습니다. Collider 트리거로 상호작용 대상을 감지하고, 프리팹으로 보스 패턴과 귀환 결과 UI를 씬에 연결했습니다.
-
-**C# 중급 · Unity 게임플레이 구현 기준** — 인터페이스로 상호작용 대상의 공통 동작을 정의하고, 추상 클래스와 다형성으로 서로 다른 보스 패턴을 공통 흐름에서 제어했습니다. 이벤트와 코루틴으로 패턴 진행과 결과 확정 흐름을 구성했습니다. `List<T>`와 `HashSet<T>`로 대상 목록과 중복 등록을 관리했으며, 저장 데이터와 읽기 전용 슬롯 정보를 별도 타입으로 구성했습니다. JSON 직렬화, .NET 파일 입출력과 예외 처리로 슬롯 저장·백업·기존 데이터 호환을 처리했습니다.
 
 ### 4.2 에셋과 협업 도구
 
@@ -476,13 +522,3 @@ else if (pixel.a > 0 && pixel.a < 255)
 - **Unity 에셋** — 기존 전기 뱀장어 모델과 FBX 클립을 가져와 Generic Rig와 반복 재생을 설정하고 머티리얼을 연결했습니다. 보트 머티리얼과 외곽선 셰이더를 수정했습니다.
 - **AI 도구** — Codex를 활용해 Unity C# 구현과 오류 분석을 보조했습니다. 보스 에셋 작업에서는 Blender 리깅·애니메이션 수정과 FBX 내보내기·재임포트 검증에 활용했습니다.
 - **Git · GitHub · GitHub Desktop** — 기능 브랜치와 Pull Request로 팀 변경 사항을 통합했습니다. 병합 충돌을 해결하고 시작 씬·빌드 진입 경로, TMP 폰트 아틀라스를 복구했습니다.
-
-## 5. 이력서용 문구
-
-> **Unity · C# | 게임플레이 시스템 구현 및 팀 시스템 연동**
->
-> Collider 트리거와 인터페이스로 NPC·수중 오브젝트 상호작용을 구현하고, 선상 거래와 잠수 귀환 정산을 공용 인벤토리·퀘스트에 연결했습니다. 구매 후 아이템 지급이 실패하면 차감한 골드를 복구하도록 처리했습니다. 전기 뱀장어 보스전에서는 추상 클래스·이벤트·코루틴을 활용해 패턴 전환과 단계별 피격 판정을 구성했습니다. JSON 기반 5슬롯 저장·불러오기를 구현하면서 파일 백업과 야간 씬 이름 변경에 대한 기존 저장 호환을 처리했습니다.
-
-## 6. 확인 범위
-
-원본은 `CTeamProject`이며 Unity 제품 설정 이름은 `DaveTheDiver`입니다. 스크립트는 원본의 `Assets/02.Scripts/`에서 컴포넌트명으로 확인할 수 있습니다. 발표 시점에 후속으로 남은 범위는 유틸리티 사용 효과, 아이템별 무게 데이터, 일부 퀘스트 대상 배치와 퀘스트 보상 지급입니다.
