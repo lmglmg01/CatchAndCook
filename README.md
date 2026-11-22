@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/e01d7e89-9c93-46f6-91e6-f97b23a0b7b2
 | --- | --- | --- |
 | 1 | [GameManager 기반 씬 전환과 공용 상태 연동](#21-gamemanager-기반-씬-전환과-공용-상태-연동) | 기존 싱글톤에 선상·다이브·야간 씬 전환과 저장 복원 연결 |
 | 2 | [플레이어 캐릭터 조작과 다이브 HUD](#22-플레이어-캐릭터-조작과-다이브-hud) | 수중 이동, 무기 전환과 조준, 잠수 상태 표시 |
-| 3 | [피격 판정과 DamageableSensor 개선](#23-피격-판정과-damageablesensor-개선) | 기존 피해 인터페이스를 활용한 보스 콜라이더별 피격 필터 |
+| 3 | [히어로 피격과 산소 감소](#23-히어로-피격과-산소-감소) | 공격형 물고기의 피해 전달, 방어력 적용과 연속 피격 방지 |
 | 4 | [상점 거래와 공용 인벤토리](#24-상점-거래와-공용-인벤토리) | 구매·판매 검증, 거래 실패 시 골드·수량 복구 |
 | 5 | [레벨별 퀘스트와 진행 이벤트](#25-레벨별-퀘스트와-진행-이벤트) | 레벨 1~10 데이터, 선행 조건과 목표 이벤트 연동 |
 | 6 | [IInteractable 기반 상호작용](#26-iinteractable-기반-상호작용) | 공통 인터페이스, 거리 기반 대상 선택, NPC 메뉴와 수중 오브젝트 연동 |
@@ -117,34 +117,38 @@ public override void SetMoveInput(Vector2 direction)
 }
 ~~~
 
-### 2.3 피격 판정과 DamageableSensor 개선
+### 2.3 히어로 피격과 산소 감소
 
 | 구분 | 내용 |
 | --- | --- |
-| 문제 | 보스 프리팹에 피격용 콜라이더와 감지·지형 접촉용 콜라이더가 같이 있으며, 패턴 단계마다 피해를 받을 수 있는 부위가 달라집니다. |
-| 해결 | 기존 `IDamageable`과 `DamageableSensor`에 보스 패턴의 콜라이더별 피격 조건을 연결했습니다. 콜라이더 활성 여부와 `BossPattern.CanReceiveHit`를 검사한 뒤 피해를 전달합니다. |
-| 결과 | 감지·접촉용 콜라이더를 피격 대상에서 제외하고, 현재 단계에서 활성화된 피격 부위에 공격이 들어왔을 때 피해를 반영합니다. |
+| 문제 | 잠수 중 물고기에게 공격받으면 방어력에 따라 산소가 줄어야 하며, 피격 직후에는 잠시 보호가 필요합니다. |
+| 해결 | 물고기의 `DamageableSensor`가 `IDamageable`을 통해 히어로에게 피해를 전달합니다. `HeroRunModel.TakeDamage`는 보호 시간이 지났는지 확인하고 공격 피해에서 방어력을 뺍니다. |
+| 결과 | 방어력을 초과한 피해만큼 산소가 줄어듭니다. 남은 산소가 0이 되면 잠수 실패로 이어집니다. |
 
 ~~~mermaid
 flowchart LR
-    A[DamageableSensor가 보스 콜라이더 감지] --> B{활성 피해 대상인가?}
-    B -->|아니오| C[피격 제외]
-    B -->|예| D{현재 패턴에서 맞을 수 있는 부위인가?}
+    A[물고기의 공격이 히어로에게 적중] --> B{피격 보호 중인가?}
+    B -->|예| C[산소 유지]
+    B -->|아니오| D{피해가 방어력을 넘는가?}
     D -->|아니오| C
-    D -->|예| E[보스 공용 체력에 피해 반영]
+    D -->|예| E[보호 시간 시작 · 초과 피해만큼 산소 차감]
+    E -->|산소 소진| F[잠수 실패]
 ~~~
 
-**예시 코드 · 보스의 피격 가능 부위 확인**
+**예시 코드 · 히어로가 공격받았을 때**
 
 ~~~csharp
-// DamageableSensor.cs · 충돌한 부위가 현재 패턴에서 피해를 받을 수 있는지 검사
-static IDamageable GetDamageable(Collider target)
+// HeroRunModel.cs · 방어력을 적용한 뒤 남은 산소에서 피해량을 차감
+public void TakeDamage(float damage)
 {
-    if (target == null) return null;
-    var damageable = target.GetComponentInParent(typeof(IDamageable)) as IDamageable;
-    // 감지 센서나 지형 접촉용 콜라이더가 공격 대상으로 처리되지 않게 한다.
-    if (damageable is BossPattern pattern && !pattern.CanReceiveHit(target)) return null;
-    return damageable;
+    if (!(damage > 0f) || float.IsInfinity(damage) || currentHealth <= 0f || Time.time < _nextDamageTime) return;
+
+    float reducedDamage = Mathf.Max(0f, damage - _defense);
+    if (reducedDamage <= 0f) return;
+    float appliedDamage = Mathf.Min(currentHealth, reducedDamage);
+    _nextDamageTime = Time.time + _damageInvulnerabilityDuration;
+    ConsumeOxygen(appliedDamage);
+    Damaged?.Invoke(appliedDamage);
 }
 ~~~
 
