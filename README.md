@@ -27,8 +27,6 @@ https://github.com/user-attachments/assets/e01d7e89-9c93-46f6-91e6-f97b23a0b7b2
 
 ## 2. 담당 시스템
 
-각 구조도 아래의 **구현 코드**를 펼치면 해당 동작을 맡는 C# 메서드를 볼 수 있습니다. 코드는 원본 프로젝트 커밋 `b1b5ebe6`에서 발췌했습니다.
-
 ### 2.1 GameManager 기반 씬 전환과 공용 상태 연동
 
 | 구분 | 내용 |
@@ -48,8 +46,7 @@ flowchart LR
     G --> E
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 잠수 후 시간대 전환과 씬 연결</summary>
+**예시 코드 · 잠수 후 다음 시간대 결정**
 
 ~~~csharp
 // GameManager.cs · 잠수 귀환 시 오전은 오후로, 오후는 밤으로 전환
@@ -72,29 +69,6 @@ public string AdvanceAfterDive()
 }
 ~~~
 
-~~~csharp
-// GameManager.cs · 새로 로드한 씬에서 활성 PlayScene을 찾아 공용 매니저에 연결
-void ConnectLoadedScene(Scene scene)
-{
-    if (!scene.IsValid() || !scene.isLoaded) return;
-    BeginSceneDay(scene);
-    foreach (GameObject root in scene.GetRootGameObjects())
-    {
-        foreach (PlayScene playScene in root.GetComponentsInChildren<PlayScene>(true))
-        {
-            if (!playScene.isActiveAndEnabled) continue;
-            ConnectScene(playScene);
-            return;
-        }
-    }
-    GameSaveService.SaveAtSceneEntry(this, scene);
-}
-~~~
-
-</details>
-
-주요 컴포넌트는 `GameManager`, `PlayScene`, `GameSaveService`입니다. 본인 기여는 기존 매니저에 씬 이동과 저장을 연동한 범위입니다. 원본 커밋 `e38e4e76`, `95116bf3`, `ce46e343`, `4d1fae86`.
-
 ### 2.2 플레이어 캐릭터 조작과 다이브 HUD
 
 | 구분 | 내용 |
@@ -115,8 +89,7 @@ flowchart LR
     I[산소·수심·탄약·장착 정보] --> H
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 수중 이동 입력과 산소 HUD</summary>
+**예시 코드 · 조준 상태에 따른 이동 입력 처리**
 
 ~~~csharp
 // UnderSeaHero.cs · 잠수 진입과 근접 공격 중에는 이동을 멈추고, 원거리 조준 중에는 이동 입력을 제한
@@ -144,30 +117,6 @@ public override void SetMoveInput(Vector2 direction)
 }
 ~~~
 
-~~~csharp
-// DiveCharacterView.cs · Refresh 내부에서 현재 산소를 게이지에 표시하고 25% 미만이면 경고 이미지로 교체
-float max = _runModel != null ? Mathf.Max(0f, _runModel.MaxOxygen) : 0f; // 최대 값입니다.
-float current = _runModel != null ? Mathf.Clamp(_runModel.CurrentOxygen, 0f, max) : 0f; // 현재 값입니다.
-UpdateLowOxygenNotice(current, max);
-float fraction = max > 0f ? current / max : 0f; // 비율 값입니다.
-if (_oxygenText != null)
-{
-    _oxygenText.text = current.ToString("0");
-}
-
-if (_oxygenFillImage != null)
-{
-    _oxygenFillImage.fillAmount = fraction;
-    // 25% 미만일 때만 경고 리소스로 바꾸고 회복하면 원본으로 되돌립니다.
-    _oxygenFillImage.sprite = fraction < 0.25f && _oxygenWarningSprite != null ? _oxygenWarningSprite : _oxygenNormalSprite;
-    _oxygenFillImage.color = Color.white;
-}
-~~~
-
-</details>
-
-주요 컴포넌트는 `UnderSeaHero`, `DiveCharacterView`, `GameplayViewConnector`입니다. 원본 커밋 `d613d0bc`, `e38e4e76`.
-
 ### 2.3 피격 판정과 DamageableSensor 개선
 
 | 구분 | 내용 |
@@ -185,8 +134,7 @@ flowchart LR
     D -->|예| E[보스 공용 체력에 피해 반영]
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 보스의 피격 부위 판정과 피해 전달</summary>
+**예시 코드 · 보스의 피격 가능 부위 확인**
 
 ~~~csharp
 // DamageableSensor.cs · 충돌한 부위가 현재 패턴에서 피해를 받을 수 있는지 검사
@@ -199,21 +147,6 @@ static IDamageable GetDamageable(Collider target)
     return damageable;
 }
 ~~~
-
-~~~csharp
-// BossPattern.cs · 등록된 피격 콜라이더를 확인하고 보스의 공용 체력에 피해 전달
-public bool CanReceiveDamage => _damageable && IsActive && isActiveAndEnabled && _boss != null && _boss.CanReceiveDamage;
-public bool CanReceiveHit(Collider hit) => CanReceiveDamage && hit != null && hit.enabled
-    && IsRegisteredHurtCollider(hit) && IsHurtColliderInRange(hit);
-protected virtual bool IsRegisteredHurtCollider(Collider hit) => _hurtColliders != null
-    && Array.IndexOf(_hurtColliders, hit) >= 0;
-protected virtual bool IsHurtColliderInRange(Collider hit) => true;
-public void TakeDamage(float damage) { if (CanReceiveDamage) _boss.TakeDamage(damage); }
-~~~
-
-</details>
-
-주요 컴포넌트는 `DamageableSensor`, `IDamageable`, `BossPattern`입니다. 본인 기여는 팀이 만든 인터페이스와 센서에 보스 피격 조건을 추가한 범위입니다. 원본 커밋 `02b3a0b6`.
 
 ### 2.4 상점 거래와 공용 인벤토리
 
@@ -235,8 +168,7 @@ flowchart LR
     E -->|아니오| H[회수한 아이템 복구]
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 상점 구매·판매와 거래 실패 복구</summary>
+**예시 코드 · 구매 실패 시 골드 복구**
 
 ~~~csharp
 // Shop.cs · 구매 시 소지금과 수용량을 확인하고 아이템 지급에 실패하면 골드를 반환
@@ -259,33 +191,6 @@ public bool TryBuy(UtilityItemData item, int amount, Inventory inventory)
 }
 ~~~
 
-~~~csharp
-// Shop.cs · 판매 대금 지급에 실패하면 회수한 아이템을 인벤토리에 복구
-public bool TrySell(ItemData item, int amount, Inventory inventory)
-{
-    if (item == null || amount <= 0 || inventory == null
-        || inventory.GetCount(item) < amount
-        || !TryGetSellTotal(item, amount, out float total)
-        || !inventory.CanAddGold(total)
-        || !inventory.TryRemove(item, amount)) return false;
-
-    if (inventory.TryAddGold(total)) return true;
-    inventory.TryAdd(item, amount);
-    return false;
-}
-~~~
-
-</details>
-
-| 주요 컴포넌트 | 역할 |
-| --- | --- |
-| `Shop` | 판매 상품과 품절 상태 관리, 거래 검증 및 실패 복구 |
-| `Inventory` | 공용 골드·아이템 수량·유틸리티 장착 상태 관리 |
-| `BoatNPCInteractionController`, `PlayScene` | NPC 메뉴 선택, 대화·상점·강화 화면 연결과 조작 제어 |
-| `GameplayViewConnector` | 공용 UI에 상점 거래와 장비 강화 결과 반영 |
-
-근거는 원본 저장소 커밋 `d613d0bc`, `e38e4e76`입니다. 장비 강화는 선상 UI와 공용 장비 시스템의 연동이 담당 범위입니다. 다이브 능력치 적용은 팀원 커밋 `83e0fe95`에서 확인됩니다.
-
 ### 2.5 레벨별 퀘스트와 진행 이벤트
 
 | 구분 | 내용 |
@@ -304,40 +209,7 @@ flowchart LR
     F -->|목표량 도달| G[퀘스트 완료]
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 메인 퀘스트 해금과 수집 목표 갱신</summary>
-
-~~~csharp
-// QuestController.cs · 요구 레벨과 이전 메인 퀘스트 그룹의 완료 여부 확인
-public bool IsGroupUnlocked(QuestGroupData data)
-{
-    if (_questDataMap == null || data == null || CurrentLevel < data.RequiredLevel)
-        return false;
-
-    if (data.Type != QuestGroupData.QuestType.Main) return true;
-
-    // Earlier main groups must be completed even if the player has already reached a higher level.
-    foreach (QuestGroupData previous in _questDataMap.Groups)
-    {
-        if (previous == null || previous.Type != QuestGroupData.QuestType.Main
-            || previous.RequiredLevel >= data.RequiredLevel) continue;
-        GroupProgress progress = GetGroupProgress(previous.Type, previous.GroupId);
-        if (progress == null || !progress.IsCompleted) return false;
-    }
-    return true;
-}
-~~~
-
-~~~csharp
-// QuestController.cs · 획득한 아이템의 ID가 수집 목표와 일치할 때만 진행 요청
-public void ReportItemCollected(ItemData item, int amount)
-{
-    if (item == null || string.IsNullOrEmpty(item.ItemId)) return;
-    AddProgress(data => data is ItemCollectQuestData collect
-        && collect.TargetItem != null
-        && collect.TargetItem.ItemId == item.ItemId, amount);
-}
-~~~
+**예시 코드 · 퀘스트 진행도 갱신과 완료 이벤트**
 
 ~~~csharp
 // QuestController.cs · 남은 목표량만큼 진행도를 더하고 완료 이벤트 발행
@@ -363,10 +235,6 @@ void AddProgress(Predicate<QuestData> matches, int amount)
 }
 ~~~
 
-</details>
-
-주요 컴포넌트는 `QuestController`, `QuestAreaTrigger`, `QuestInteractableObject`, `QuestFishEventBridge`입니다. 원본 커밋 `af7b006b`, `e38e4e76`.
-
 ### 2.6 IInteractable 기반 상호작용
 
 | 구분 | 내용 |
@@ -386,71 +254,7 @@ flowchart LR
     F -->|수중 오브젝트| H[산소·탄약 보충 또는 귀환]
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 상호작용 인터페이스와 대상 선택</summary>
-
-~~~csharp
-// IInteractable.cs · 상호작용 인터페이스 전체 정의
-public interface IInteractable
-{
-    /// <summary>Whether this hero can interact with the object right now.</summary>
-    bool CanInteract(Hero interactor);
-
-    /// <summary>Perform the object's interaction for this hero.</summary>
-    void Interact(Hero interactor);
-}
-~~~
-
-~~~csharp
-// InteractableSensor.cs · FindNearestInteractable 내부에서 사용 가능한 대상 중 가장 가까운 콜라이더 선택
-Component component = hit.GetComponentInParent(typeof(IInteractable));
-if (!(component is IInteractable target) || component == null) continue;
-if (component is Behaviour behaviour && !behaviour.isActiveAndEnabled) continue;
-if (!target.CanInteract(interactor)) continue;
-
-float distance = (hit.ClosestPoint(position) - position).sqrMagnitude;
-if (distance >= nearestDistance) continue;
-nearestDistance = distance;
-nearest = target;
-~~~
-
-</details>
-
-<details>
-<summary><strong>구현 코드</strong> · 수중 보급 상호작용 · 키 입력, 산소통, 탄약 상자</summary>
-
-~~~csharp
-// DiveSupplyHold.cs · Tick 내부에서 키를 떼면 진행도를 초기화하고 끝까지 누르면 보급품 사용
-if (!held)
-{
-    _awaitRelease = false;
-    if (_elapsed > 0f) ResetProgress();
-    return;
-}
-if (_awaitRelease) return;
-
-_elapsed += Time.deltaTime;
-_fill.fillAmount = Mathf.Clamp01(_elapsed / _holdSeconds);
-if (_elapsed < _holdSeconds) return;
-
-_supply.Interact(hero);
-Cancel();
-~~~
-
-~~~csharp
-// InteractObject.cs · 보급 효과가 적용되면 단일 사용 오브젝트의 재사용 차단
-public void Interact(Hero interactor)
-{
-    if (!CanInteract(interactor) || !ApplyInteraction(interactor)) return;
-    if (interactor is UnderSeaHero) GameSfx.Play(GameSoundId.UseInteractable);
-    if (!IsSingleUse) return;
-
-    _isInteracted = true;
-    if (_interactionCollider != null) _interactionCollider.enabled = false;
-    SetDetected(false);
-    FinishUse(_effect);
-}
-~~~
+**예시 코드 · 수중 산소통 사용**
 
 ~~~csharp
 // RecoveryHpInteractObject.cs · 산소 보급 상호작용 구현
@@ -477,54 +281,6 @@ public class RecoveryHpInteractObject : DiveSupplyInteractObject
 }
 ~~~
 
-~~~csharp
-// RecoveryBulletInteractObject.cs · 탄약 보급 상호작용 구현
-public class RecoveryBulletInteractObject : DiveSupplyInteractObject
-{
-    [Header("데이터")]
-    [SerializeField] RecoveryBulletInteractObjectData _data;
-
-    public override bool CanInteract(Hero interactor)
-    {
-        return base.CanInteract(interactor)
-            && _data != null
-            && _data.RecoveryBulletValue > 0
-            && interactor is UnderSeaHero;
-    }
-
-    protected override bool ApplyInteraction(Hero interactor)
-    {
-        if (interactor is not UnderSeaHero hero) return false;
-
-        hero.RecoverBullet(_data.RecoveryBulletValue);
-        return true;
-    }
-}
-~~~
-
-~~~csharp
-// DiveSupplyInteractObject.cs · 사용한 보급품에 소멸 셰이더를 적용하고 사라지는 연출 시작
-protected override void FinishUse(GameObject effect)
-{
-    if (_supplyRenderer == null || _dissolveShader == null || _fadeSeconds <= 0f)
-    {
-        base.FinishUse(effect);
-        Destroy(gameObject);
-        return;
-    }
-
-    _dissolvingMaterial = new Material(_supplyRenderer.sharedMaterial);
-    _dissolvingMaterial.shader = _dissolveShader;
-    _dissolvingMaterial.renderQueue = -1;
-    _supplyRenderer.sharedMaterial = _dissolvingMaterial;
-    StartCoroutine(FadeOut(effect));
-}
-~~~
-
-</details>
-
-주요 컴포넌트는 `IInteractable`, `InteractableSensor`, `BoatNPCInteractionController`입니다. 원본 커밋 `d613d0bc`, `e38e4e76`.
-
 ### 2.7 전기 뱀장어 보스전
 
 | 구분 | 내용 |
@@ -545,45 +301,7 @@ flowchart LR
     F -->|전투 진행 중| B
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 보스 패턴 선택과 완료 이벤트</summary>
-
-~~~csharp
-// BossPatternController.cs · 패턴을 선택해 활성화하고 현재 패턴의 완료 신호를 기다리는 전투 루프
-IEnumerator RunBattle()
-{
-    while (IsRunning)
-    {
-        if (_idleDuration > 0f) yield return new WaitForSeconds(_idleDuration);
-        int index = _playInOrder ? (_lastPatternIndex + 1) % _patterns.Count : Random.Range(0, _patterns.Count);
-        if (!_playInOrder && _preventRepeat && _patterns.Count > 1 && index == _lastPatternIndex)
-            index = (index + Random.Range(1, _patterns.Count)) % _patterns.Count;
-        _lastPatternIndex = index;
-        var selected = _patterns[index];
-        if (selected == null) break;
-        _waitingForPatternEnd = true;
-        CurrentPattern = selected;
-        selected.gameObject.SetActive(true);
-        selected.Initialize(_hero, _boss);
-        selected.ActivatePattern();
-        if (CurrentPattern != null && !selected.IsActive)
-        {
-            Debug.LogWarning("보스 패턴을 시작하지 못했습니다. 패턴의 Inspector 설정을 확인해 주세요.", selected);
-            selected.gameObject.SetActive(false);
-            CurrentPattern = null;
-            break;
-        }
-        if (CurrentPattern == selected && selected.IsActive) PatternStarted?.Invoke(selected);
-        // 완료 이벤트에서 다음 패턴을 즉시 시작하지 않아 중첩 실행을 막는다.
-        yield return null;
-        while (IsRunning && _waitingForPatternEnd) yield return null;
-    }
-    IsRunning = false;
-    _waitingForPatternEnd = false;
-    _routine = null;
-    Unsubscribe();
-}
-~~~
+**예시 코드 · 진행 중인 보스 패턴의 종료 처리**
 
 ~~~csharp
 // BossPatternController.cs · 현재 패턴의 완료 이벤트가 도착하면 대기를 해제
@@ -595,16 +313,6 @@ void OnPatternCompleted(BossPattern pattern)
     pattern.gameObject.SetActive(false);
 }
 ~~~
-
-</details>
-
-| 주요 컴포넌트 | 역할 |
-| --- | --- |
-| `BossPattern`, `BossPatternController` | 패턴 공통 동작, 피격 조건과 완료 이벤트, 전투 순서 |
-| `RushBiteBossPattern`, `SuctionBossPattern`, `SweepBossPattern` | 개별 공격과 단계별 동작 |
-| `BossBattleSession`, `BossTest.unity` | 전투 씬 구성, 전투 단계와 화면 연동 |
-
-보스 모델·애니메이션 FBX를 Unity에 적용하고 전투 연출을 후속 수정했습니다. 근거는 원본 저장소 커밋 `faa3b53e`, `02b3a0b6`, `40209d19`입니다.
 
 ### 2.8 JSON 5슬롯 저장·불러오기
 
@@ -625,31 +333,7 @@ flowchart LR
     F -->|아니오| G[불러오기 실패 안내]
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 슬롯 JSON 저장과 백업 복구</summary>
-
-~~~csharp
-// GameSaveService.cs · 임시 파일을 작성한 뒤 기존 슬롯 파일을 백업하며 교체
-static bool TryWriteSlot(int slot, GameSaveData save, out string error)
-{
-    error = null;
-    string path = GetSlotPath(slot);
-    string temporary = path + ".tmp";
-    try
-    {
-        Directory.CreateDirectory(Application.persistentDataPath);
-        File.WriteAllText(temporary, JsonUtility.ToJson(save, true));
-        if (File.Exists(path)) File.Replace(temporary, path, path + ".bak");
-        else File.Move(temporary, path);
-        return true;
-    }
-    catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)
-    {
-        error = exception.Message;
-        return false;
-    }
-}
-~~~
+**예시 코드 · 저장 슬롯의 백업 파일 불러오기**
 
 ~~~csharp
 // GameSaveService.cs · 슬롯 읽기에 실패하면 같은 슬롯의 백업 파일로 재시도
@@ -664,16 +348,6 @@ static bool TryReadSlotFile(int slot, out GameSaveData save, out string error, o
     return false;
 }
 ~~~
-
-</details>
-
-| 주요 컴포넌트 | 역할 |
-| --- | --- |
-| `GameSaveData`, `GameSaveService` | 저장용 구조, 슬롯별 파일 입출력, 유효성 검증, 백업과 씬 이름 호환 |
-| `StartSceneView` | 슬롯 선택과 새 게임·이어하기·삭제 UI |
-| `GameManager`, `EditorBuildSettings.asset` | 시간대별 씬 진입, 빌드 시작 씬 등록 |
-
-오후 보트 이름 변경에 맞춰 귀환 경로를 조정했고 병합 후 빌드의 시작 씬 순서를 복구했습니다. 야간 초밥집에서는 진입 경로와 기존 진행 데이터의 공용 저장 서비스 연동을 담당했습니다. 근거는 원본 저장소 커밋 `95116bf3`, `ce46e343`, `f36cb0af`, `4d1fae86`입니다.
 
 ### 2.9 정상·강제 귀환 정산
 
@@ -694,33 +368,7 @@ flowchart LR
     F --> G[정산 완료 후 시간대 전환]
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 귀환 유형별 획득물과 정산</summary>
-
-~~~csharp
-// DiveResultView.cs · 팀 공용 결과 화면의 Confirm 내부에서 정상 귀환은 전체, 실패는 선택한 한 종류를 확정
-Inventory.BagItem[] confirmedItems; // 확인 완료 아이템 목록입니다.
-if (_isClear)
-{
-    confirmedItems = _items.ToArray();
-}
-else if (_selectedSlot != null)
-{
-    confirmedItems = new[]
-    {
-        new Inventory.BagItem(_selectedSlot.Item, _selectedSlot.Amount)
-    };
-}
-else
-{
-    confirmedItems = Array.Empty<Inventory.BagItem>();
-}
-
-_confirmed = true;
-UpdateGuideAndButton();
-SetWindow(false);
-OnItemsConfirmed?.Invoke(Array.AsReadOnly(confirmedItems));
-~~~
+**예시 코드 · 귀환 시 확보한 아이템 정산**
 
 ~~~csharp
 // DivePlayScene.cs · OnDiveItemsConfirmed 내부에서 확보한 수량을 인벤토리와 수집 퀘스트에 반영
@@ -737,16 +385,6 @@ foreach (var item in keptItems)
         _gameManager.PlayerProgress?.AddExperience(fillet.ExperienceOnAcquire * item.Count);
 }
 ~~~
-
-</details>
-
-| 주요 컴포넌트 | 역할 |
-| --- | --- |
-| `PlayScene` | 귀환 시작, 결과 확정 이벤트 구독, 공용 인벤토리와 다음 씬 연결 |
-| `DiveResultView` | 팀 공용 결과 화면. 귀환 유형에 따라 확정할 아이템 전달 |
-| `QuestController` | 수집 진행 수신과 요구 레벨·선행 퀘스트에 따른 해금 |
-
-결과 화면의 확정 이벤트에 귀환 정산을 연결했습니다. 원본 커밋 `f74d678a`, `e38e4e76`.
 
 ### 2.10 Unity 에디터 아이콘 제작 도구 개선
 
@@ -769,8 +407,7 @@ flowchart LR
     G --> H
 ~~~
 
-<details>
-<summary><strong>구현 코드</strong> · 아이콘 실루엣과 반투명 경계 처리</summary>
+**예시 코드 · 아이콘 실루엣과 반투명 경계 보정**
 
 ~~~csharp
 // IconCaptureService.cs · Capture 내부에서 실루엣은 투명도를 유지하고, 일반 아이콘은 반투명 경계의 RGB를 보정
@@ -787,10 +424,6 @@ else if (pixel.a > 0 && pixel.a < 255)
     pixel.b = (byte)Mathf.Min(255, Mathf.RoundToInt(pixel.b * factor)); pixels[index] = pixel;
 }
 ~~~
-
-</details>
-
-주요 컴포넌트는 `IconCaptureService`, `ItemIconGeneratorWindow`입니다. 기존 에디터 도구의 캡처 옵션과 이미지 처리 개선이 본인 기여 범위입니다. 원본 커밋 `7f18eadc`.
 
 ## 3. 보유 기술과 개발 도구
 
@@ -830,4 +463,4 @@ else if (pixel.a > 0 && pixel.a < 255)
 
 ## 5. 확인 범위
 
-원본은 `CTeamProject`이며 Unity 제품 설정 이름은 `DaveTheDiver`입니다. 스크립트는 원본의 `Assets/02.Scripts/`에서 컴포넌트명으로 확인할 수 있습니다. 위 결과는 문서에 인용한 커밋의 코드와 씬 변경을 기준으로 설명합니다. 발표 시점에 후속으로 남은 범위는 유틸리티 사용 효과, 아이템별 무게 데이터, 일부 퀘스트 대상 배치와 퀘스트 보상 지급입니다.
+원본은 `CTeamProject`이며 Unity 제품 설정 이름은 `DaveTheDiver`입니다. 스크립트는 원본의 `Assets/02.Scripts/`에서 컴포넌트명으로 확인할 수 있습니다. 발표 시점에 후속으로 남은 범위는 유틸리티 사용 효과, 아이템별 무게 데이터, 일부 퀘스트 대상 배치와 퀘스트 보상 지급입니다.
