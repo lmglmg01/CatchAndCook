@@ -4,11 +4,11 @@ Unity 기반 잠수 탐험 게임의 개인 담당 파트 기술 문서입니다
 
 ## 플레이 시연 영상
 
-[![Catch & Cook 플레이 영상 열기](media/catch-and-cook-cover.jpg)](media/catch-and-cook-gameplay.mp4)
+https://github.com/user-attachments/assets/e01d7e89-9c93-46f6-91e6-f97b23a0b7b2
 
-튜토리얼, 두 번의 잠수, 초밥집 영업을 차례로 담았습니다. 9분 48초부터 돌연변이 전기 뱀장어 보스전이 시작됩니다.
+한글 자막과 함께 튜토리얼, 두 번의 잠수, 초밥집 영업을 차례로 볼 수 있습니다. 9분 48초부터 돌연변이 전기 뱀장어 보스전이 시작됩니다.
 
-[전체 영상 내려받기 · 12분 57초 · 한글 자막 (MP4)](https://github.com/lmglmg01/TeamProject/raw/refs/heads/main/media/catch-and-cook-gameplay.mp4)
+[720p 원본 화질로 재생 · 12분 57초](https://lmglmg01.github.io/TeamProject/)
 
 ## 1. 담당 범위
 
