@@ -46,8 +46,6 @@ flowchart LR
     G --> E
 ~~~
 
-**예시 코드 · 잠수 후 다음 시간대 결정**
-
 ~~~csharp
 // GameManager.cs · 잠수 귀환 시 오전은 오후로, 오후는 밤으로 전환
 public string AdvanceAfterDive()
@@ -67,6 +65,15 @@ public string AdvanceAfterDive()
     }
     return null;
 }
+
+// DivePlayScene.cs · 귀환 정산을 마치면 GameManager가 돌려준 씬으로 이동한다.
+string nextScene = _gameManager.AdvanceAfterDive();
+if (string.IsNullOrEmpty(nextScene))
+{
+    Debug.LogError("다이브 완료 후 이동할 시간대 씬을 결정하지 못했습니다.", this);
+    return;
+}
+ChangeScene(nextScene);
 ~~~
 
 ### 2.2 플레이어 캐릭터 조작과 다이브 HUD
@@ -88,8 +95,6 @@ flowchart LR
     F -->|현재 무기| H[다이브 HUD]
     I[산소·수심·탄약·장착 정보] --> H
 ~~~
-
-**예시 코드 · 조준 상태에 따른 이동 입력 처리**
 
 ~~~csharp
 // UnderSeaHero.cs · 잠수 진입과 근접 공격 중에는 이동을 멈추고, 원거리 조준 중에는 이동 입력을 제한
@@ -115,6 +120,15 @@ public override void SetMoveInput(Vector2 direction)
     _runModel.SetSprinting(_sprintHeld && direction.sqrMagnitude > 0f && _runModel.MoveSpeed > 0f);
     MoveHero(direction, _runModel.EffectiveMoveSpeed);
 }
+
+// DiveCharacterView.Refresh · 남은 산소 비율로 게이지를 채우고, 25% 미만이면 경고 이미지를 쓴다.
+float fraction = max > 0f ? current / max : 0f;
+if (_oxygenFillImage != null)
+{
+    _oxygenFillImage.fillAmount = fraction;
+    _oxygenFillImage.sprite = fraction < 0.25f && _oxygenWarningSprite != null ? _oxygenWarningSprite : _oxygenNormalSprite;
+    _oxygenFillImage.color = Color.white;
+}
 ~~~
 
 ### 2.3 히어로 피격과 산소 감소
@@ -135,20 +149,27 @@ flowchart LR
     E -->|산소 소진| F[잠수 실패]
 ~~~
 
-**예시 코드 · 히어로가 공격받았을 때**
-
 ~~~csharp
-// HeroRunModel.cs · 방어력을 적용한 뒤 남은 산소에서 피해량을 차감
-public void TakeDamage(float damage)
+// IDamageable.cs · 공격 센서가 피격 대상에 피해량을 전달할 때 쓰는 팀 공용 인터페이스다.
+public interface IDamageable
 {
-    if (!(damage > 0f) || float.IsInfinity(damage) || currentHealth <= 0f || Time.time < _nextDamageTime) return;
+    void TakeDamage(float damage);
+}
 
-    float reducedDamage = Mathf.Max(0f, damage - _defense);
-    if (reducedDamage <= 0f) return;
-    float appliedDamage = Mathf.Min(currentHealth, reducedDamage);
-    _nextDamageTime = Time.time + _damageInvulnerabilityDuration;
-    ConsumeOxygen(appliedDamage);
-    Damaged?.Invoke(appliedDamage);
+// HeroRunModel.cs · 피격 처리 발췌. 보호 시간에는 피해를 무시하고, 방어력을 넘는 피해만 산소에서 뺀다.
+public class HeroRunModel : MonoBehaviour, IDamageable
+{
+    public void TakeDamage(float damage)
+    {
+        if (!(damage > 0f) || float.IsInfinity(damage) || currentHealth <= 0f || Time.time < _nextDamageTime) return;
+
+        float reducedDamage = Mathf.Max(0f, damage - _defense);
+        if (reducedDamage <= 0f) return;
+        float appliedDamage = Mathf.Min(currentHealth, reducedDamage);
+        _nextDamageTime = Time.time + _damageInvulnerabilityDuration;
+        ConsumeOxygen(appliedDamage);
+        Damaged?.Invoke(appliedDamage);
+    }
 }
 ~~~
 
@@ -171,8 +192,6 @@ flowchart LR
     D -->|아니오| G[차감한 골드 반환]
     E -->|아니오| H[회수한 아이템 복구]
 ~~~
-
-**예시 코드 · 구매 실패 시 골드 복구**
 
 ~~~csharp
 // Shop.cs · 구매 시 소지금과 수용량을 확인하고 아이템 지급에 실패하면 골드를 반환
@@ -213,9 +232,16 @@ flowchart LR
     F -->|목표량 도달| G[퀘스트 완료]
 ~~~
 
-**예시 코드 · 퀘스트 진행도 갱신과 완료 이벤트**
-
 ~~~csharp
+// QuestController.cs · 수집 목표와 획득 아이템의 ID를 비교하는 조건을 AddProgress에 넘긴다.
+public void ReportItemCollected(ItemData item, int amount)
+{
+    if (item == null || string.IsNullOrEmpty(item.ItemId)) return;
+    AddProgress(data => data is ItemCollectQuestData collect
+        && collect.TargetItem != null
+        && collect.TargetItem.ItemId == item.ItemId, amount);
+}
+
 // QuestController.cs · 남은 목표량만큼 진행도를 더하고 완료 이벤트 발행
 void AddProgress(Predicate<QuestData> matches, int amount)
 {
@@ -258,10 +284,16 @@ flowchart LR
     F -->|수중 오브젝트| H[산소·탄약 보충 또는 귀환]
 ~~~
 
-**예시 코드 · 수중 산소통 사용**
-
 ~~~csharp
-// RecoveryHpInteractObject.cs · 산소 보급 상호작용 구현
+// IInteractable.cs · 같은 입력으로 상호작용 가능 여부를 확인하고 대상의 동작을 실행한다.
+public interface IInteractable
+{
+    bool CanInteract(Hero interactor);
+    void Interact(Hero interactor);
+}
+
+// RecoveryHpInteractObject.cs · 산소통은 InteractObject의 Interact를 상속한다.
+// Interact가 CanInteract로 사용 조건을 확인한 뒤, 아래 ApplyInteraction에서 산소를 보충한다.
 public class RecoveryHpInteractObject : DiveSupplyInteractObject
 {
     [Header("데이터")]
@@ -314,10 +346,25 @@ flowchart LR
     F -->|전투 진행 중| B
 ~~~
 
-**예시 코드 · 진행 중인 보스 패턴의 종료 처리**
-
 ~~~csharp
-// BossPatternController.cs · 현재 패턴의 완료 이벤트가 도착하면 대기를 해제
+// BossPattern.cs · 시작과 종료에 관련된 멤버 발췌. 각 패턴은 시작 동작을 구현하고 완료 시 자신을 알린다.
+public abstract class BossPattern : MonoBehaviour, IDamageable
+{
+    public event Action<BossPattern> PatternCompleted;
+    public abstract void ActivatePattern();
+
+    protected void EndPattern()
+    {
+        if (!IsActive) return;
+        CancelPattern();
+        PatternCompleted?.Invoke(this);
+    }
+}
+
+// BossPatternController.PreparePatterns · 패턴을 준비할 때 완료 이벤트에 처리 메서드를 연결한다.
+pattern.PatternCompleted += OnPatternCompleted;
+
+// BossPatternController.cs · 현재 패턴에서 온 완료 신호만 받아 대기를 푼다.
 void OnPatternCompleted(BossPattern pattern)
 {
     if (!IsRunning || !_waitingForPatternEnd || pattern != CurrentPattern) return;
@@ -346,9 +393,12 @@ flowchart LR
     F -->|아니오| G[불러오기 실패 안내]
 ~~~
 
-**예시 코드 · 저장 슬롯의 백업 파일 불러오기**
-
 ~~~csharp
+// GameSaveService.TryWriteSlot · JSON을 임시 파일에 쓴다. 기존 슬롯을 교체할 때 이전 파일이 .bak이 된다.
+File.WriteAllText(temporary, JsonUtility.ToJson(save, true));
+if (File.Exists(path)) File.Replace(temporary, path, path + ".bak");
+else File.Move(temporary, path);
+
 // GameSaveService.cs · 슬롯 읽기에 실패하면 같은 슬롯의 백업 파일로 재시도
 static bool TryReadSlotFile(int slot, out GameSaveData save, out string error, out string source)
 {
@@ -381,9 +431,16 @@ flowchart LR
     F --> G[정산 완료 후 시간대 전환]
 ~~~
 
-**예시 코드 · 귀환 시 확보한 아이템 정산**
-
 ~~~csharp
+// DiveResultView.cs · 팀 공용 결과 화면이 확정한 아이템과 수량을 정산 쪽에 전달하는 이벤트다.
+public event Action<IReadOnlyList<Inventory.BagItem>> OnItemsConfirmed;
+
+// DiveResultView.Confirm · 정상 귀환은 전체 목록, 산소 소진 귀환은 선택한 한 종류의 수량을 전달한다.
+OnItemsConfirmed?.Invoke(Array.AsReadOnly(confirmedItems));
+
+// DivePlayScene.cs · 결과 화면을 열 때 아래 정산 메서드를 이벤트에 연결한다.
+_diveResultView.OnItemsConfirmed += OnDiveItemsConfirmed;
+
 // DivePlayScene.cs · OnDiveItemsConfirmed 내부에서 확보한 수량을 인벤토리와 수집 퀘스트에 반영
 foreach (var item in keptItems)
 {
@@ -393,7 +450,7 @@ foreach (var item in keptItems)
         return;
     }
     _gameManager.QuestController?.ReportItemCollected(item.ItemData, item.Count);
-    // Only retained fish fillets grant their configured experience per item.
+    // 실제로 가져온 손질 생선만 획득 수량에 비례해 경험치를 지급한다.
     if (item.ItemData is FishFilletItemData fillet)
         _gameManager.PlayerProgress?.AddExperience(fillet.ExperienceOnAcquire * item.Count);
 }
@@ -420,8 +477,6 @@ flowchart LR
     G --> H
 ~~~
 
-**예시 코드 · 아이콘 실루엣과 반투명 경계 보정**
-
 ~~~csharp
 // IconCaptureService.cs · Capture 내부에서 실루엣은 투명도를 유지하고, 일반 아이콘은 반투명 경계의 RGB를 보정
 if (settings.blackSilhouette)
@@ -430,7 +485,7 @@ if (settings.blackSilhouette)
 }
 else if (pixel.a > 0 && pixel.a < 255)
 {
-    // Render targets store coverage-premultiplied edges. PNG needs straight alpha.
+    // PNG의 반투명 가장자리가 어두워지지 않도록 알파가 곱해진 RGB를 원래 값으로 되돌린다.
     float factor = 255f / pixel.a;
     pixel.r = (byte)Mathf.Min(255, Mathf.RoundToInt(pixel.r * factor));
     pixel.g = (byte)Mathf.Min(255, Mathf.RoundToInt(pixel.g * factor));
@@ -448,20 +503,14 @@ else if (pixel.a > 0 && pixel.a < 255)
 
 **반영 결과** — `FishPatternScheduler`는 무리별 판단 시각이 됐거나 장애물 회피처럼 즉시 판단할 요청이 있을 때만 `Tick()`을 호출합니다. 파동·점프 경로는 기존 물리 주기로 갱신하고, `FishRespawnScheduler`는 예약 시간이 된 자리만 재생성합니다.
 
-**수정 전 · 매 물리 틱에 모든 대상 패턴의 판단 실행**
-
 ~~~csharp
-// FishSpawner.FixedUpdate
+// 수정 전 · FishSpawner.FixedUpdate · 물리 틱마다 모든 대상 패턴의 판단을 실행한다.
 foreach (FishSpawnPattern pattern in _fixedPatterns)
 {
     pattern.Tick(Time.fixedDeltaTime);
 }
-~~~
 
-**수정 후 · 판단 시각과 즉시 요청을 확인하고 연속 이동은 별도로 갱신**
-
-~~~csharp
-// FishPatternScheduler.Advance
+// 수정 후 · FishPatternScheduler.Advance · 판단 시각이나 즉시 요청을 확인하고, 연속 이동은 따로 갱신한다.
 if (_clock >= entry.NextDecision || pattern.DecisionRequested)
 {
     // 조기 갱신에서도 마지막 판단 이후 실제 경과 시간만 전달합니다.
@@ -491,10 +540,8 @@ if (pattern.RequiresPhysicsPath)
 
 **반영 결과** — 캐릭터 UI는 활성화·비활성화 이벤트로 등록하고 해제해 0.25초 주기의 전체 검색을 없앴습니다. 주문 시작(`OrderStarted`)과 서빙 완료(`FoodServed`)는 해당 표시를 갱신하고, 조리 목록은 변경되거나 슬롯을 다시 맞춰야 할 때 뷰에 전달합니다. 영업 상태와 의자 청소 등 조회가 남은 항목은 후속 이벤트 연결 대상으로 기록했습니다.
 
-**수정 전 · 0.25초마다 UI 대상을 다시 찾고 매 프레임 조리 목록 전달**
-
 ~~~csharp
-// IjakayaPresenter.LateUpdate
+// 수정 전 · IjakayaPresenter.LateUpdate · 0.25초마다 UI 대상을 다시 찾고 매 프레임 조리 목록을 전달한다.
 if (_initialized && Time.unscaledTime >= _nextWorldRefresh)
 {
     _nextWorldRefresh = Time.unscaledTime + .25f;
@@ -502,12 +549,8 @@ if (_initialized && Time.unscaledTime >= _nextWorldRefresh)
 }
 if (_initialized && _cookingDisplay != null && _shop.Cooker != null)
     _cookingDisplay.DisplayOrders(_shop.Cooker.CookingOrders, _shop.Cooker.CompletedOrders);
-~~~
 
-**수정 후 · 이벤트로 UI를 연결하고 동기화가 필요한 조리 목록만 전달**
-
-~~~csharp
-// IjakayaPresenter
+// 수정 후 · IjakayaPresenter · 이벤트로 UI를 연결하고 동기화가 필요할 때만 조리 목록을 전달한다.
 void SubscribeWorldCanvases()
 {
     if (_worldEventsSubscribed) return;
