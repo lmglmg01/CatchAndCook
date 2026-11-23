@@ -6,8 +6,6 @@ Unity 기반 잠수 탐험 게임의 개인 담당 파트 기술 문서입니다
 
 https://github.com/user-attachments/assets/9c62803c-12c2-4330-9af4-322495df6297
 
-한글 자막과 함께 튜토리얼, 두 번의 잠수, 초밥집 영업을 차례로 볼 수 있습니다. 9분 48초부터 돌연변이 전기 뱀장어 보스전이 시작됩니다.
-
 [720p 원본 자동재생 · 30fps · 12분 57초](https://lmglmg01.github.io/CatchAndCook/)
 
 ## 1. 담당 범위
